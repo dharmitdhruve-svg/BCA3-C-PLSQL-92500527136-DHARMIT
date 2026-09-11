@@ -1,0 +1,239 @@
+UNIT 2 - CURSORS
+========================================================
+(Uses the EMP table created in Unit 1, Program 8)
+
+PROGRAM 1: SQL%ROWCOUNT (Implicit Cursor) - Raise Salary 10% for Dept 10
+--------------------------------------------------------
+SET SERVEROUTPUT ON;
+BEGIN
+    UPDATE EMP SET BasicSal = BasicSal * 1.10 WHERE Deptno = 10;
+    IF SQL%ROWCOUNT > 0 THEN
+        DBMS_OUTPUT.PUT_LINE(SQL%ROWCOUNT || ' record(s) updated for Department 10');
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('No records found for Department 10');
+    END IF;
+    COMMIT;
+END;
+/
+
+
+PROGRAM 2: %ISOPEN and %NOTFOUND - Raise Salary 5% for Dept 20 (Implicit + Explicit Cursor)
+--------------------------------------------------------
+-- Table to log updates
+CREATE TABLE emp_update (
+    EID     NUMBER,
+    OldSal  NUMBER,
+    NewSal  NUMBER,
+    UpdDate DATE
+);
+
+SET SERVEROUTPUT ON;
+DECLARE
+    CURSOR c_emp IS SELECT EID, BasicSal FROM EMP WHERE Deptno = 20;
+    v_eid EMP.EID%TYPE;
+    v_old EMP.BasicSal%TYPE;
+BEGIN
+    OPEN c_emp;
+    IF c_emp%ISOPEN THEN
+        DBMS_OUTPUT.PUT_LINE('Cursor opened successfully');
+    END IF;
+
+    LOOP
+        FETCH c_emp INTO v_eid, v_old;
+        EXIT WHEN c_emp%NOTFOUND;
+
+        UPDATE EMP SET BasicSal = BasicSal * 1.05 WHERE EID = v_eid;  -- Implicit cursor
+        INSERT INTO emp_update VALUES (v_eid, v_old, v_old * 1.05, SYSDATE);
+    END LOOP;
+    CLOSE c_emp;
+
+    DBMS_OUTPUT.PUT_LINE('Update process completed for Department 20');
+    COMMIT;
+END;
+/
+
+
+PROGRAM 3: %ROWCOUNT (Explicit Cursor) - First 5 Highest Paid Employees
+--------------------------------------------------------
+SET SERVEROUTPUT ON;
+DECLARE
+    CURSOR c_emp IS
+        SELECT EName, Deptname, BasicSal FROM EMP ORDER BY BasicSal DESC;
+    v_ename EMP.EName%TYPE;
+    v_dept  EMP.Deptname%TYPE;
+    v_sal   EMP.BasicSal%TYPE;
+BEGIN
+    OPEN c_emp;
+    LOOP
+        FETCH c_emp INTO v_ename, v_dept, v_sal;
+        EXIT WHEN c_emp%NOTFOUND OR c_emp%ROWCOUNT > 5;
+        DBMS_OUTPUT.PUT_LINE(v_ename || ' | ' || v_dept || ' | ' || v_sal);
+    END LOOP;
+    CLOSE c_emp;
+END;
+/
+
+
+PROGRAM 4: Cursor FOR Loop - Top 3 Highest Paid Employees
+--------------------------------------------------------
+SET SERVEROUTPUT ON;
+DECLARE
+    CURSOR c_emp IS
+        SELECT EName, BasicSal FROM EMP ORDER BY BasicSal DESC
+        FETCH FIRST 3 ROWS ONLY;   -- If unsupported, use: WHERE ROWNUM <= 3 with a subquery ordered by BasicSal DESC
+BEGIN
+    FOR rec IN c_emp LOOP
+        DBMS_OUTPUT.PUT_LINE(rec.EName || ' - ' || rec.BasicSal);
+    END LOOP;
+END;
+/
+
+
+PROGRAM 5: Parameterized Cursor - Dept-wise Basic Salary & Dept-wise Total Gross Salary
+--------------------------------------------------------
+SET SERVEROUTPUT ON;
+DECLARE
+    CURSOR c_alldept IS
+        SELECT DISTINCT Deptno, Deptname FROM EMP;
+
+    CURSOR c_dept(p_deptno EMP.Deptno%TYPE) IS
+        SELECT EName, BasicSal FROM EMP WHERE Deptno = p_deptno;
+
+    v_gross_total NUMBER;
+    v_gross       NUMBER;
+BEGIN
+    FOR d IN c_alldept LOOP
+        DBMS_OUTPUT.PUT_LINE('Department: ' || d.Deptname);
+        v_gross_total := 0;
+        FOR e IN c_dept(d.Deptno) LOOP
+            v_gross := e.BasicSal + (0.50 * e.BasicSal) + (0.15 * e.BasicSal) + 500 - (0.10 * e.BasicSal);
+            DBMS_OUTPUT.PUT_LINE('   ' || e.EName || ' - Basic: ' || e.BasicSal || ' Gross: ' || v_gross);
+            v_gross_total := v_gross_total + v_gross;
+        END LOOP;
+        DBMS_OUTPUT.PUT_LINE('   Department Total Gross Salary: ' || v_gross_total);
+    END LOOP;
+END;
+/
+
+
+PROGRAM 6: Cursor to Insert Records into EMP_BACKUP for Given DEPT_NO (User-Defined Exception NO_DEPT_FOUND)
+--------------------------------------------------------
+CREATE TABLE EMP_BACKUP (
+    EID       NUMBER,
+    EName     VARCHAR2(50),
+    Deptno    NUMBER,
+    Deptname  VARCHAR2(50),
+    Gender    VARCHAR2(10),
+    Age       NUMBER,
+    BasicSal  NUMBER
+);
+
+SET SERVEROUTPUT ON;
+DECLARE
+    v_deptno EMP.Deptno%TYPE := &deptno;
+    CURSOR c_emp IS SELECT * FROM EMP WHERE Deptno = v_deptno;
+    v_count NUMBER := 0;
+    NO_DEPT_FOUND EXCEPTION;
+BEGIN
+    FOR rec IN c_emp LOOP
+        INSERT INTO EMP_BACKUP VALUES
+            (rec.EID, rec.EName, rec.Deptno, rec.Deptname, rec.Gender, rec.Age, rec.BasicSal);
+        v_count := v_count + 1;
+    END LOOP;
+
+    IF v_count = 0 THEN
+        RAISE NO_DEPT_FOUND;
+    END IF;
+
+    DBMS_OUTPUT.PUT_LINE(v_count || ' record(s) backed up for Department ' || v_deptno);
+    COMMIT;
+EXCEPTION
+    WHEN NO_DEPT_FOUND THEN
+        DBMS_OUTPUT.PUT_LINE('No records found for Department Number ' || v_deptno);
+END;
+/
+
+
+PROGRAM 7: Display Records from CUSTOMER Table (Explicit Cursor)
+--------------------------------------------------------
+CREATE TABLE CUSTOMER (
+    CustID   NUMBER PRIMARY KEY,
+    CustName VARCHAR2(50),
+    City     VARCHAR2(50),
+    Phone    VARCHAR2(15)
+);
+
+INSERT INTO CUSTOMER VALUES (1, 'Rahul Shah', 'Rajkot', '9876543210');
+INSERT INTO CUSTOMER VALUES (2, 'Priya Mehta', 'Ahmedabad', '9123456780');
+COMMIT;
+
+SET SERVEROUTPUT ON;
+DECLARE
+    CURSOR c_cust IS SELECT CustID, CustName, City, Phone FROM CUSTOMER;
+    v_id    CUSTOMER.CustID%TYPE;
+    v_name  CUSTOMER.CustName%TYPE;
+    v_city  CUSTOMER.City%TYPE;
+    v_phone CUSTOMER.Phone%TYPE;
+BEGIN
+    OPEN c_cust;
+    LOOP
+        FETCH c_cust INTO v_id, v_name, v_city, v_phone;
+        EXIT WHEN c_cust%NOTFOUND;
+        DBMS_OUTPUT.PUT_LINE(v_id || ' | ' || v_name || ' | ' || v_city || ' | ' || v_phone);
+    END LOOP;
+    CLOSE c_cust;
+END;
+/
+
+
+PROGRAM 8: Display Data using LIKE Operator with Cursor FOR Loop
+--------------------------------------------------------
+SET SERVEROUTPUT ON;
+DECLARE
+    CURSOR c_cust IS
+        SELECT CustName, City FROM CUSTOMER WHERE CustName LIKE 'R%';
+BEGIN
+    FOR rec IN c_cust LOOP
+        DBMS_OUTPUT.PUT_LINE(rec.CustName || ' - ' || rec.City);
+    END LOOP;
+END;
+/
+
+
+PROGRAM 9: Show Records using ORDER BY Clause with Cursor
+--------------------------------------------------------
+SET SERVEROUTPUT ON;
+DECLARE
+    CURSOR c_cust IS
+        SELECT CustName, City FROM CUSTOMER ORDER BY CustName ASC;
+BEGIN
+    FOR rec IN c_cust LOOP
+        DBMS_OUTPUT.PUT_LINE(rec.CustName || ' - ' || rec.City);
+    END LOOP;
+END;
+/
+
+
+PROGRAM 10: Update Operation on EMPLOYEE Table using Implicit Cursor
+--------------------------------------------------------
+CREATE TABLE EMPLOYEE (
+    EmpID  NUMBER PRIMARY KEY,
+    EName  VARCHAR2(50),
+    Salary NUMBER
+);
+
+INSERT INTO EMPLOYEE VALUES (1, 'Ravi', 15000);
+INSERT INTO EMPLOYEE VALUES (2, 'Kiran', 18000);
+COMMIT;
+
+SET SERVEROUTPUT ON;
+BEGIN
+    UPDATE EMPLOYEE SET Salary = Salary + 1000 WHERE EmpID = 1;
+    IF SQL%ROWCOUNT > 0 THEN
+        DBMS_OUTPUT.PUT_LINE('Employee record updated successfully');
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('No such employee found');
+    END IF;
+    COMMIT;
+END;
+/
